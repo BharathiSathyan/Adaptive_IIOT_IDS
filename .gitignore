@@ -5,6 +5,9 @@ data/
 *.zip
 venv/
 
+#models
+*.h5
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

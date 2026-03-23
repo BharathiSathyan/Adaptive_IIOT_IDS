@@ -1,192 +1,254 @@
 import os
 import time
+import warnings
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 
 # -----------------------------
-# Suppress TensorFlow warnings
+# SUPPRESS WARNINGS
 # -----------------------------
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 0: all, 1: INFO, 2: WARNING, 3: ERROR
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+warnings.filterwarnings("ignore")
 
+# -----------------------------
+# IMPORTS
+# -----------------------------
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+from sklearn.metrics import classification_report, accuracy_score
 from sklearn.utils.class_weight import compute_class_weight
 
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
-
+from tensorflow.keras.applications import MobileNetV2, DenseNet121
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Dropout
 
 # -----------------------------
-# Configuration
+# CONFIG (FAST TEST MODE)
 # -----------------------------
 DATA_PATH = "data/processed/nf_ton_iotv2_subset.csv"
-MODEL_PATH = "models/ids_model.keras"
 
+IMG_SIZE = 64
+EPOCHS = 6
+BATCH_SIZE = 32
+SAMPLE_SIZE = 5000
 
-# -----------------------------
-# Start Timer
-# -----------------------------
+print("\n🚀 Starting Pipeline...\n")
+
 start_time = time.time()
 
-
 # -----------------------------
-# Load Dataset
+# LOAD DATA (SAFE)
 # -----------------------------
-print("\n" + "="*50)
-print("LOADING DATASET")
-print("="*50)
+if not os.path.exists(DATA_PATH):
+    raise FileNotFoundError("❌ Processed dataset not found. Run preprocessing first.")
 
 df = pd.read_csv(DATA_PATH)
 
-print("Dataset loaded")
-print("Shape:", df.shape)
+# reduce size for testing
+df = df.sample(min(SAMPLE_SIZE, len(df)), random_state=42)
 
+if "Attack" not in df.columns:
+    raise ValueError("❌ Target column 'Attack' missing!")
 
-# -----------------------------
-# Split Features / Target
-# -----------------------------
-X = df.drop("Attack", axis=1)
+X = df.drop("Attack", axis=1).astype("float32")
 y = df["Attack"]
 
-# Ensure correct dtype for TensorFlow
-X = X.astype("float32")
-
+print(f"✅ Dataset loaded: {X.shape}")
 
 # -----------------------------
-# Encode Labels
+# LABEL ENCODING
 # -----------------------------
 encoder = LabelEncoder()
 y_encoded = encoder.fit_transform(y)
-
 num_classes = len(np.unique(y_encoded))
 
-print("\nAttack Classes:")
-print(encoder.classes_)
-
+print("✅ Classes:", list(encoder.classes_))
 
 # -----------------------------
-# Train/Test Split
+# TABULAR → IMAGE
+# -----------------------------
+def tabular_to_image(X):
+    imgs = []
+
+    for row in X.values:
+        row = (row - np.min(row)) / (np.max(row) - np.min(row) + 1e-8)
+
+        size = int(np.sqrt(len(row)))
+        row = row[:size*size]
+
+        img = row.reshape(size, size)
+        img = tf.image.resize(img[..., np.newaxis], (IMG_SIZE, IMG_SIZE)).numpy()
+        img = np.repeat(img, 3, axis=-1)
+
+        imgs.append(img)
+
+    return np.array(imgs)
+
+print("\n🔄 Converting tabular data → images...")
+X_img = tabular_to_image(X)
+
+print("✅ Image shape:", X_img.shape)
+
+# -----------------------------
+# SPLIT
 # -----------------------------
 X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y_encoded,
-    test_size=0.2,
-    random_state=42,
-    stratify=y_encoded
+    X_img, y_encoded, test_size=0.2, stratify=y_encoded, random_state=42
 )
 
-print("\nTraining samples:", X_train.shape)
-print("Testing samples:", X_test.shape)
+print("✅ Train shape:", X_train.shape)
+print("✅ Test shape:", X_test.shape)
 
-
-# -----------------------------
-# Compute Class Weights
-# -----------------------------
 class_weights = compute_class_weight(
-    class_weight="balanced",
+    class_weight='balanced',
     classes=np.unique(y_train),
     y=y_train
 )
 
-class_weights = dict(zip(np.unique(y_train), class_weights))
+class_weights = {k: round(float(v), 4) for k, v in enumerate(class_weights)}
 
-print("\nClass Weights:")
-print(class_weights)
+# CLIP EXTREME WEIGHTS
+for k in class_weights:
+    class_weights[k] = min(class_weights[k], 5.0)
 
-
-# -----------------------------
-# Build Neural Network
-# -----------------------------
-print("\n" + "="*50)
-print("BUILDING MODEL")
-print("="*50)
-
-model = Sequential([
-    tf.keras.layers.Input(shape=(X_train.shape[1],)),
-
-    Dense(256, activation="relu"),
-    Dropout(0.3),
-
-    Dense(128, activation="relu"),
-    Dropout(0.3),
-
-    Dense(64, activation="relu"),
-
-    Dense(num_classes, activation="softmax")
-])
-
-model.compile(
-    optimizer="adam",
-    loss="sparse_categorical_crossentropy",
-    metrics=["accuracy"]
-)
-
-model.summary()
-
+print("\n⚖️ Class Weights:", class_weights)
 
 # -----------------------------
-# Train Model
+# MODEL BUILDER
 # -----------------------------
-print("\n" + "="*50)
-print("TRAINING MODEL")
-print("="*50)
+def build_model(name):
 
-history = model.fit(
+    if name == "mobilenet":
+        base_model = MobileNetV2(
+            input_shape=(IMG_SIZE, IMG_SIZE, 3),
+            include_top=False,
+            weights='imagenet'
+        )
+    else:
+        base_model = DenseNet121(
+            input_shape=(IMG_SIZE, IMG_SIZE, 3),
+            include_top=False,
+            weights='imagenet'
+        )
+
+    for layer in base_model.layers[:-20]:
+      layer.trainable = False
+
+    for layer in base_model.layers[-20:]:
+        layer.trainable = True
+
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    
+
+    x = Dense(128, activation="relu")(x)
+    x = Dropout(0.5)(x)
+
+    output = Dense(num_classes, activation="softmax")(x)
+
+    model = Model(inputs=base_model.input, outputs=output)
+
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0003),
+        loss="sparse_categorical_crossentropy",
+        metrics=["accuracy"]
+    )
+
+    return model
+
+callbacks = [
+    tf.keras.callbacks.EarlyStopping(
+        patience=2,
+        restore_best_weights=True
+    )
+]
+
+# -----------------------------
+# TRAIN MOBILE NET
+# -----------------------------
+print("\n🧠 Training MobileNet...")
+model1 = build_model("mobilenet")
+
+model1.fit(
     X_train,
     y_train,
-    epochs=40,
-    batch_size=256,
     validation_split=0.2,
+    epochs=EPOCHS,
+    batch_size=BATCH_SIZE,
     class_weight=class_weights,
-    verbose=1
+    callbacks=callbacks
 )
 
+# -----------------------------
+# TRAIN DENSE NET
+# -----------------------------
+print("\n🧠 Training DenseNet...")
+model2 = build_model("densenet")
+
+model2.fit(
+    X_train,
+    y_train,
+    validation_split=0.2,
+    epochs=EPOCHS,
+    batch_size=BATCH_SIZE,
+    class_weight=class_weights,
+    callbacks=callbacks
+)
 
 # -----------------------------
-# Evaluate Model
+# EVALUATION FUNCTION
 # -----------------------------
-print("\n" + "="*50)
-print("EVALUATING MODEL")
-print("="*50)
+def evaluate(model, name):
 
-y_pred = model.predict(X_test)
-y_pred_classes = np.argmax(y_pred, axis=1)
+    pred = model.predict(X_test)
+    pred_cls = np.argmax(pred, axis=1)
 
-accuracy = accuracy_score(y_test, y_pred_classes)
+    acc = accuracy_score(y_test, pred_cls)
 
-print(f"\nAccuracy: {accuracy:.4f}")
+    print(f"\n📊 {name} Accuracy: {acc:.4f}")
 
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred_classes, target_names=encoder.classes_))
+    print(classification_report(
+        y_test,
+        pred_cls,
+        target_names=encoder.classes_,
+        zero_division=0   # 🔥 avoids warning
+    ))
 
-
-# -----------------------------
-# Confusion Matrix
-# -----------------------------
-cm = confusion_matrix(y_test, y_pred_classes)
-
-print("\nConfusion Matrix:")
-print(cm)
-
+    return pred, acc
 
 # -----------------------------
-# Save Model
+# EVALUATE
 # -----------------------------
-os.makedirs("models", exist_ok=True)
-model.save(MODEL_PATH)
-
-print(f"\nModel saved to: {MODEL_PATH}")
-
+pred1, acc1 = evaluate(model1, "MobileNet")
+pred2, acc2 = evaluate(model2, "DenseNet")
 
 # -----------------------------
-# End Timer
+# ENSEMBLE
+# -----------------------------
+print("\n🔗 Running Ensemble...")
+
+ensemble_pred = (pred1 + pred2) / 2
+ensemble_cls = np.argmax(ensemble_pred, axis=1)
+
+ensemble_acc = accuracy_score(y_test, ensemble_cls)
+
+print(f"\n🚀 Ensemble Accuracy: {ensemble_acc:.4f}")
+
+print(classification_report(
+    y_test,
+    ensemble_cls,
+    target_names=encoder.classes_,
+    zero_division=0
+))
+
+# -----------------------------
+# TIME
 # -----------------------------
 end_time = time.time()
 
-print("\n" + "="*50)
-print("EXECUTION TIME")
-print("="*50)
-print(f"Total Time Taken: {round(end_time - start_time, 2)} seconds")
+print("\n⏱ Total Execution Time:", round(end_time - start_time, 2), "seconds")
+
+print("\n✅ Pipeline Step 2 Completed Successfully!")

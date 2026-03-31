@@ -1,0 +1,78 @@
+==============================
+STARTING MODEL: DENSENET
+==============================
+
+Training densenet with lr=0.001, dropout=0.5, dense=128
+Resuming from checkpoint: checkpoints/densenet.keras
+Epoch 1/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 220s 461ms/step - accuracy: 0.7123 - loss: 0.7379 - val_accuracy: 0.7793 - val_loss: 0.6221
+Epoch 2/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 183s 426ms/step - accuracy: 0.7118 - loss: 0.6893 - val_accuracy: 0.7326 - val_loss: 0.6354
+Epoch 3/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 185s 431ms/step - accuracy: 0.7172 - loss: 0.7055 - val_accuracy: 0.6652 - val_loss: 0.7330
+Epoch 4/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 184s 430ms/step - accuracy: 0.7114 - loss: 0.6753 - val_accuracy: 0.7852 - val_loss: 0.5990
+Epoch 5/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 183s 427ms/step - accuracy: 0.7393 - loss: 0.6015 - val_accuracy: 0.7925 - val_loss: 0.5543
+Training time: 956.51
+
+==============================
+STARTING MODEL: MOBILENET
+==============================
+
+Training mobilenet with lr=0.001, dropout=0.5, dense=128
+Epoch 1/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 120s 249ms/step - accuracy: 0.6090 - loss: 1.2562 - val_accuracy: 0.5610 - val_loss: 1.4350
+Epoch 2/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 96s 224ms/step - accuracy: 0.6188 - loss: 1.0432 - val_accuracy: 0.2245 - val_loss: 3.9107
+Epoch 3/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 91s 212ms/step - accuracy: 0.6584 - loss: 0.8492 - val_accuracy: 0.3751 - val_loss: 3.7435
+Epoch 4/5
+429/429 ━━━━━━━━━━━━━━━━━━━━ 91s 212ms/step - accuracy: 0.7173 - loss: 0.7257 - val_accuracy: 0.3961 - val_loss: 2.7520
+Training time: 399.94
+134/134 ━━━━━━━━━━━━━━━━━━━━ 69s 457ms/step
+
+densenet Accuracy: 0.7966378706514126
+densenet MCC: 0.770566873805009
+              precision    recall  f1-score   support
+
+      Benign       0.95      0.88      0.91       600
+    backdoor       1.00      0.98      0.99        47
+        ddos       0.89      0.91      0.90       600
+         dos       0.61      0.97      0.75       600
+   injection       0.69      0.77      0.73       600
+        mitm       0.20      0.38      0.27        26
+    password       0.82      0.76      0.79       600
+  ransomware       0.67      1.00      0.80        10
+    scanning       0.98      0.93      0.95       600
+         xss       0.82      0.35      0.49       600
+
+    accuracy                           0.80      4283
+   macro avg       0.76      0.79      0.76      4283
+weighted avg       0.82      0.80      0.79      4283
+
+134/134 ━━━━━━━━━━━━━━━━━━━━ 20s 135ms/step
+
+mobilenet Accuracy: 0.5671258463693672
+mobilenet MCC: 0.5086036949450985
+              precision    recall  f1-score   support
+
+      Benign       0.57      0.70      0.63       600
+    backdoor       0.00      0.00      0.00        47
+        ddos       0.72      0.60      0.65       600
+         dos       0.64      0.74      0.69       600
+   injection       0.43      0.68      0.52       600
+        mitm       0.01      0.12      0.02        26
+    password       0.70      0.53      0.60       600
+  ransomware       0.00      0.00      0.00        10
+    scanning       0.93      0.60      0.73       600
+         xss       0.45      0.20      0.27       600
+
+    accuracy                           0.57      4283
+   macro avg       0.44      0.42      0.41      4283
+weighted avg       0.62      0.57      0.57      4283
+
+
+Dynamic Ensemble Weights: [0.58414655 0.41585345]
+
+Ensemble Accuracy: 0.7840298855942097

@@ -1,161 +1,82 @@
-"""
-Memory-safe preprocessing pipeline for NF-ToN-IoTv2 dataset.
-
-Steps:
-1. Load small random fraction of dataset
-2. Clean dataset
-3. Stratified sampling per attack class
-4. One-hot encode protocol feature
-5. Min-max normalization
-6. Save processed dataset
-"""
-
 import pandas as pd
+import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
 DATA_PATH = "data/raw/NF-ToN-IoT-V2.parquet"
 OUTPUT_PATH = "data/processed/nf_ton_iotv2_subset.csv"
 
-# how much of the raw dataset to initially load
-INITIAL_SAMPLE_FRACTION = 0.1
+SAMPLES_PER_CLASS = 3000  
 
-# final samples per attack class
-SAMPLES_PER_CLASS = 5000
-
-
-# -----------------------------
-# Step 1 — Load Dataset (Sampled)
-# -----------------------------
-def load_dataset(path):
-
-    print("Loading dataset...")
-
-    df = pd.read_parquet(path)
-
-    # take small fraction first to reduce memory
-    df = df.sample(frac=INITIAL_SAMPLE_FRACTION, random_state=42)
-
-    print("Dataset sampled")
-    print("Shape:", df.shape)
-
+def load_dataset():
+    print("\nLoading dataset...")
+    df = pd.read_parquet(DATA_PATH)
+    df = df.sample(n=200000, random_state=42)
+    print("Samples Shape:", df.shape)
     return df
 
-
-# -----------------------------
-# Step 2 — Clean Dataset
-# -----------------------------
 def clean_dataset(df):
+    print("\nCleaning dataset...")
 
-    # remove binary label
+    df = df.drop_duplicates()
+
+    df = df.replace(["?", "-", "NaN"], np.nan)
+    df = df.fillna(-1)
+
     df = df.drop(columns=["Label"], errors="ignore")
 
-    # drop identifier columns if present
     drop_cols = ["IPV4_SRC_ADDR", "IPV4_DST_ADDR"]
     df = df.drop(columns=drop_cols, errors="ignore")
 
-    print("Dataset cleaned")
-    print("Shape:", df.shape)
-
+    print("After cleaning:", df.shape)
     return df
 
+def stratified_sampling(df):
+    print("\nApplying stratified sampling...")
 
-# -----------------------------
-# Step 3 — Stratified Sampling
-# -----------------------------
-def stratified_sampling(df, label_column="Attack", samples_per_class=5000):
+    frames = []
+    for cls in df["Attack"].unique():
+        subset = df[df["Attack"] == cls]
 
-    sampled_frames = []
+        if len(subset) >= SAMPLES_PER_CLASS:
+            subset = subset.sample(SAMPLES_PER_CLASS, random_state=42)
 
-    for attack_class in df[label_column].unique():
+        frames.append(subset)
 
-        class_df = df[df[label_column] == attack_class]
+    df = pd.concat(frames).reset_index(drop=True)
 
-        if len(class_df) > samples_per_class:
-            class_df = class_df.sample(samples_per_class, random_state=42)
+    print("After sampling:", df.shape)
+    print(df["Attack"].value_counts())
+    return df
 
-        sampled_frames.append(class_df)
-
-    df_sampled = pd.concat(sampled_frames).reset_index(drop=True)
-
-    print("\nStratified sampling completed")
-    print("New dataset size:", df_sampled.shape)
-
-    print("\nClass distribution:")
-    print(df_sampled[label_column].value_counts())
-
-    return df_sampled
-
-
-# -----------------------------
-# Step 4 — Encode Protocol
-# -----------------------------
-def encode_protocol(df):
-
+def encode(df):
     if "PROTOCOL" in df.columns:
         df = pd.get_dummies(df, columns=["PROTOCOL"])
-
-    print("Protocol encoding completed")
-
     return df
 
+def normalize(df):
+    print("\nNormalizing...")
 
-# -----------------------------
-# Step 5 — Normalize Features
-# -----------------------------
-def normalize_features(df, label_column="Attack"):
+    X = df.drop("Attack", axis=1)
+    y = df["Attack"]
 
     scaler = MinMaxScaler()
-
-    X = df.drop(label_column, axis=1)
-    y = df[label_column]
-
     X_scaled = scaler.fit_transform(X)
 
     X_scaled = pd.DataFrame(X_scaled, columns=X.columns)
 
-    df_normalized = pd.concat([X_scaled, y.reset_index(drop=True)], axis=1)
+    df = pd.concat([X_scaled, y.reset_index(drop=True)], axis=1)
+    return df
 
-    print("Normalization completed")
-
-    return df_normalized
-
-
-# -----------------------------
-# Step 6 — Save Dataset
-# -----------------------------
-def save_dataset(df, path):
-
-    df.to_csv(path, index=False)
-
-    print("Processed dataset saved to:", path)
-
-
-# -----------------------------
-# Main Pipeline
-# -----------------------------
 def main():
-
-    df = load_dataset(DATA_PATH)
-
+    print("Pre-Processing Pipeline Starts...")
+    df = load_dataset()
     df = clean_dataset(df)
+    df = stratified_sampling(df)
+    df = encode(df)
+    df = normalize(df)
 
-    df = stratified_sampling(
-        df,
-        label_column="Attack",
-        samples_per_class=SAMPLES_PER_CLASS
-    )
-
-    df = encode_protocol(df)
-
-    df = normalize_features(
-        df,
-        label_column="Attack"
-    )
-
-    save_dataset(df, OUTPUT_PATH)
-
-    print("\nPreprocessing pipeline completed successfully.")
-
+    df.to_csv(OUTPUT_PATH, index=False)
+    print("Saved:", OUTPUT_PATH)
 
 if __name__ == "__main__":
     main()

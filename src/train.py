@@ -79,6 +79,12 @@ def train_single(model_name, X_train, y_train, X_val, y_val, class_weights):
 
     return model
 
+def tabular_to_sequence(X, seq_len=10):
+    sequences = []
+    for i in range(len(X) - seq_len):
+        sequences.append(X.iloc[i:i+seq_len].values)
+    return np.array(sequences)
+
 def main():
     df = pd.read_csv(DATA_PATH)
 
@@ -126,6 +132,8 @@ def main():
     final_cls = np.argmax(final, axis=1)
 
     print("\nEnsemble Accuracy:", np.mean(final_cls == y_test))
+
+    
 
 if __name__ == "__main__":
     main()
